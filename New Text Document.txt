@@ -1,0 +1,308 @@
+'''
+Title: Large Mammal Populations In Elk Island National Park
+Author: Jack Mclaughlan
+Date Created: 2021-06-06
+'''
+
+import sys
+import pathlib
+import sqlite3
+import csv
+
+CSVFile = "Elk_Island_NP_Grassland_Forest_Ungulate_Population_1906-2017_data.csv"
+databaseFile = "elkData.db"
+first_run = True
+
+if (pathlib.Path.cwd() / databaseFile).exists():
+    first_run = False
+
+connection = sqlite3.connect(databaseFile)
+cursor = connection.cursor()
+
+# Variables
+direction = []
+populationYear = []
+species = []
+population = []
+rawData = []
+data = []
+
+# Functions
+def menu():
+    '''
+    User selects what they want to do from a list of options
+    :return: (int) User choice
+    '''
+    print("""
+Please select an option:
+1. Determine population growth
+2. Add new data 
+3. Delete data
+4. Exit the program
+    """)
+    choice = input("> ")
+    try:
+        choice = int(choice)
+        return choice
+    except ValueError:
+        print("Input a number")
+        return menu()
+
+
+### Processing
+def setup(data):
+    '''
+    Creates the table required for processing the information
+    :param data: (list) of required
+    :return: (None)
+    '''
+    global cursor, connection
+    cursor.execute('''
+        CREATE TABLE elkData(
+            id INTEGER PRIMARY KEY,
+            populationYear INTEGER NOT NULL,
+            direction TEXT NOT NULL, 
+            species TEXT NOT NULL,
+            population INTEGER NOT NULL
+        )     
+    ;''')
+    connection.commit()
+
+    for i in range(len(data)):
+        cursor.execute('''
+        INSERT INTO
+            elkData
+        VALUES(
+            null,
+            ?, 
+            ?, 
+            ?, 
+            ?
+            
+        )
+        ;''', data[i])
+    connection.commit()
+
+
+def getData():
+    '''
+    Read the file contents and convert it into an array
+    :return: (None)
+    '''
+    global CSVFile
+    CSVFile = open("Elk_Island_NP_Grassland_Forest_Ungulate_Population_1906-2017_data.csv")
+    databaseReader = csv.reader(CSVFile)
+    elkDataVar = list(databaseReader)
+    for i in range(len(elkDataVar)):
+        direction.append(elkDataVar[i][0])
+        populationYear.append(elkDataVar[i][1])
+        species.append(elkDataVar[i][5])
+        population.append(elkDataVar[i][16])
+    rawData = [populationYear, direction, species, population]
+    for i in range(len(rawData[0])):
+        data.append([populationYear[i], direction[i], species[i], population[i]])
+    return data
+
+
+def populationGrowth():
+    '''
+    Calculate the population growth between two different years using the north population and south population of the animal
+    :return: (None)
+    '''
+    startYearPopulation = 0
+    endYearPopulation = 0
+    startYearVar = int(input("Start year: "))
+    endYearVar = int(input("End year: "))
+    speciesVarInt = int(input("Bison(1), Elk(2), Moose(3), Deer(4), or All (5)? "))
+    global cursor, connection
+    if speciesVarInt == 1:
+        speciesVar = "Bison"
+    elif speciesVarInt == 2:
+        speciesVar = "Elk"
+    elif speciesVarInt == 3:
+        speciesVar = "Moose"
+    elif speciesVarInt == 4:
+        speciesVar = "Deer"
+    elif speciesVarInt == 5:
+        speciesVar = "*"
+    else:
+        speciesVar = None
+
+
+    # Get the population for the starting year
+    populationData = [startYearVar, "North", speciesVar]
+    northPopulationStart = cursor.execute('''
+            SELECT
+                population
+            FROM
+                elkData
+            WHERE
+                populationYear = ? AND direction = ? AND species = ?  
+        ;''', populationData).fetchone()
+    populationData = [startYearVar, "South", speciesVar]
+    southPopulationStart = cursor.execute('''
+                SELECT
+                    population
+                FROM
+                    elkData
+                WHERE
+                    populationYear = ? AND direction = ? AND species = ?    
+            ;''', populationData).fetchone()
+
+    if northPopulationStart == None or northPopulationStart == "NA":
+        northPopulationStart = 0
+    if southPopulationStart == None or southPopulationStart == "NA":
+        southPopulationStart = 0
+    if speciesVarInt != 5:
+        try:
+            startYearPopulation = northPopulationStart[0] + southPopulationStart[0]
+        except TypeError:
+            print(f"Not enough data available for the year {startYearVar} so growth cannot be calculated accurately")
+            return
+    if startYearPopulation == 0:
+        print(f"Not enough data available for the year {startYearVar} so growth cannot be calculated accurately")
+        return
+
+    # Get the population for the ending year
+    populationData = [endYearVar, "North", speciesVar]
+    northPopulationEnd = cursor.execute('''
+                SELECT
+                    population
+                FROM
+                    elkData
+                WHERE
+                    populationYear = ? AND direction = ? AND species = ?   
+            ;''', populationData).fetchone()
+    populationData = [endYearVar, "South", speciesVar]
+    southPopulationEnd = cursor.execute('''
+                    SELECT
+                        population
+                    FROM
+                        elkData
+                    WHERE
+                        populationYear = ? AND direction = ? AND species = ?  
+                ;''', populationData).fetchone()
+    if northPopulationEnd == None or northPopulationEnd == "NA":
+        northPopulationEnd = 0
+    if southPopulationEnd == None or southPopulationEnd == "NA":
+        southPopulationEnd = 0
+    if speciesVarInt != 5:
+        try:
+            endYearPopulation = northPopulationEnd[0] + southPopulationEnd[0]
+        except TypeError:
+            print(f"Not enough data available for the year {startYearVar} so growth cannot be calculated accurately")
+            return
+    if endYearPopulation == 0:
+        print(f"Not enough data available for the year {endYearVar} so growth cannot be calculated accurately")
+        return
+    # Calculate the population growth
+    if speciesVarInt != 5:
+        try:
+            populationGrowthVar = (int(endYearPopulation) - int(startYearPopulation)) / (int(endYearVar) - int(startYearVar))
+            print(f"The {speciesVar} population has changed by {populationGrowthVar}/yr")
+        except ZeroDivisionError:
+            print("Input two different years")
+            return
+    connection.commit()
+    if speciesVarInt == 5:
+        for i in range(len(startYearPopulation)):
+            startYearSum = int(startYearPopulation[i])
+        for i in range(len(endYearPopulation)):
+            endYearSum = int(endYearPopulation[i])
+        populationGrowthVar = startYearSum + endYearSum
+        if speciesVarInt == 5:
+            print(f"The total animal population has changed by {populationGrowthVar}/yr")
+
+def addData():
+    '''
+    Add data to elkData
+    :return: (None)
+    '''
+    global cursor, connection
+    # Input
+    print("Insert values to be added")
+    populationYearVar = input("Year = ")
+    speciesVarInt = int(input("Bison(1), Elk(2), Moose(3), Deer(4), or All (5)? "))
+    if speciesVarInt == 1:
+        speciesVar = "Bison"
+    elif speciesVarInt == 2:
+        speciesVar = "Elk"
+    elif speciesVarInt == 3:
+        speciesVar = "Moose"
+    elif speciesVarInt == 4:
+        speciesVar = "Deer"
+    directionVar = input("Cardinal direction (North or South) = ")
+    populationVar = input("Population = ")
+    direction.append(directionVar)
+    populationYear.append(populationYearVar)
+    species.append(speciesVar)
+    population.append(populationVar)
+    data.append([populationYear[-1], direction[-1], species[-1], population[-1]])
+    # Processing
+    cursor.execute('''
+            INSERT INTO
+                elkData
+            VALUES(
+            NULL, ?, ?, ?, ?
+            )
+            ;''', data[-1])
+    print("Successfully added data to the database")
+    connection.commit()
+
+
+def deleteData():
+    '''
+    Delete data from elkData
+    :return: (None)
+    '''
+    global cursor, connection
+    yearDelete = input("Enter the year: ")
+    directionDelete = input("Area of park (North/South): ")
+    speciesDelete = int(input("Bison(1), Elk(2), Moose(3), Deer(4), or All (5)? "))
+    if speciesDelete == 1:
+        speciesVarDelete = "Bison"
+    elif speciesDelete == 2:
+        speciesVarDelete = "Elk"
+    elif speciesDelete == 3:
+        speciesVarDelete = "Moose"
+    elif speciesDelete == 4:
+        speciesVarDelete = "Deer"
+    data = [yearDelete, directionDelete, speciesVarDelete]
+    choiceDelete = input("Are you sure you want to delete that data? n/Y ")
+    if choiceDelete == "Y" or choiceDelete == "y":
+        cursor.execute('''
+            DELETE FROM
+                elkData
+            WHERE
+                populationYear = ? AND direction = ? AND species = ?  
+        ;''', data)
+        connection.commit()
+        print("Data deleted successfully")
+    else:
+        return
+
+
+
+if __name__ == "__main__":
+    data = getData()
+    if first_run:
+        setup(data)
+    shouldhalt = False
+    while not shouldhalt:
+        choice = menu()
+        if choice == 1:
+            populationGrowth()
+        elif choice == 2:
+            addData()
+        elif choice == 3:
+            deleteData()
+        elif choice == 4:
+            shouldhalt = True
+
+
+
+
+
+
+
+
